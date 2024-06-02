@@ -7,6 +7,7 @@ from sklearn.metrics import roc_auc_score
 from pprint import pprint
 import pandas as pd
 from itertools import combinations
+import os
 
 features = ["PassengerId", "Pclass", "Sex", "Age", "SibSp", "Parch", "Fare", "Embarked"]
 object_value_name = "Survived"
@@ -25,6 +26,8 @@ def load_data(path: str):
 
 
 def pair_plot(df: pd.DataFrame):
+    graph_folder = "graph"
+    os.makedirs(graph_folder, exist_ok=True)
     pair_plot = sns.pairplot(
         df,
         hue="Survived",
@@ -32,14 +35,14 @@ def pair_plot(df: pd.DataFrame):
     )
     # plt.show()
     # ペアプロット
-    pair_plot.savefig("pairplot.png")
+    pair_plot.savefig(f"{graph_folder}/pairplot.png")
 
     # 2要素を散布図を書く
     feture_combinations = list(combinations(df.columns, 2))
     for combo in feture_combinations:
         print(combo)
         joint_plot = sns.jointplot(data=df, x=combo[0], y=combo[1], hue=object_value_name)
-        joint_plot.savefig(f"{combo[0]}_{combo[1]}.png")
+        joint_plot.savefig(f"{graph_folder}/{combo[0]}_{combo[1]}.png")
 
 
 def main():
