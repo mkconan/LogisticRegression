@@ -36,6 +36,7 @@ def pair_plot(df: pd.DataFrame):
     # plt.show()
     # ペアプロット
     pair_plot.savefig(f"{graph_folder}/pairplot.png")
+    plt.close()
 
     # 2要素を散布図を書く
     feture_combinations = list(combinations(df.columns, 2))
@@ -43,21 +44,23 @@ def pair_plot(df: pd.DataFrame):
         print(combo)
         joint_plot = sns.jointplot(data=df, x=combo[0], y=combo[1], hue=object_value_name)
         joint_plot.savefig(f"{graph_folder}/{combo[0]}_{combo[1]}.png")
+        plt.close()
 
 
 def main():
     df = load_data("./train.csv")
     # 使えそうな特徴量をさがす
-    pair_plot(df)
+    # pair_plot(df)
 
-    X = df[features]
+    # 質的データはダミー変数に変換
+    df = pd.get_dummies(df, drop_first=True)
+
+    X = df.drop(object_value_name, axis=1)
     Y = df[object_value_name]
-    print(X.info())
-    print(Y.info())
 
     X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=0)
 
-    lr = LogisticRegression()
+    lr = LogisticRegression(penalty="l1", solver="liblinear")
     result = lr.fit(X_train, Y_train)  # ロジスティック回帰モデルの重みを学習
     pprint(result.get_params())
 
