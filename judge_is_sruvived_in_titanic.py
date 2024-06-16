@@ -1,6 +1,6 @@
 import seaborn as sns
 import matplotlib.pyplot as plt
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, KFold
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
@@ -75,6 +75,12 @@ def pre_process_data(train_df: pd.DataFrame, test_df: pd.DataFrame) -> list[pd.D
     train_df = train_df[[*features, object_value_name]].copy()
     test_df = test_df[[*features]].copy()
 
+    # 料金をクリッピング
+    p01 = train_df["Fare"].quantile(0.01)
+    p99 = train_df["Fare"].quantile(0.99)
+    train_df["Fare"] = train_df["Fare"].clip(p01, p99)
+    test_df["Fare"] = test_df["Fare"].clip(p01, p99)
+
     # 標準化
     scaler = StandardScaler()
     scaler.fit(train_df[["Age", "Fare"]])
@@ -134,25 +140,30 @@ def train(train_df: pd.DataFrame):
     X = train_df.drop(object_value_name, axis=1)
     Y = train_df[object_value_name]
 
-    X_train, X_eval, Y_train, Y_eval = train_test_split(X, Y, test_size=0.2, random_state=0)
+    # cross validation
+    kf = KFold(n_splits=4, shuffle=True, random_state=57)
 
-    lr = LogisticRegression(penalty="l1", solver="liblinear")
-    result = lr.fit(X_train, Y_train)  # ロジスティック回帰モデルの重みを学習
-    pprint(result.get_params())
+    for i, (tr_i, vr_i) in enumerate(kf.split(X)):
+        X_train, X_valid = X.iloc[tr_i], X.iloc[vr_i]
+        Y_train, Y_valid = Y.iloc[tr_i], Y.iloc[vr_i]
 
-    Y_pred = lr.predict(X_eval)
+        lr = LogisticRegression(penalty="l1", solver="liblinear")
+        result = lr.fit(X_train, Y_train)  # ロジスティック回帰モデルの重みを学習
+        pprint(result.get_params())
 
-    print("confusion matrix = \n", confusion_matrix(y_true=Y_eval, y_pred=Y_pred))
-    print("accuracy = ", accuracy_score(y_true=Y_eval, y_pred=Y_pred))
-    print("precision = ", precision_score(y_true=Y_eval, y_pred=Y_pred))
-    print("recall = ", recall_score(y_true=Y_eval, y_pred=Y_pred))
-    print("f1 score = ", f1_score(y_true=Y_eval, y_pred=Y_pred))
+        Y_pred = lr.predict(X_valid)
 
-    Y_score = lr.predict_proba(X_eval)[:, 1]  # 検証データがクラス1に属する確率
-    print("auc = ", roc_auc_score(y_true=Y_eval, y_score=Y_score))
+        print("confusion matrix = \n", confusion_matrix(y_true=Y_valid, y_pred=Y_pred))
+        print("accuracy = ", accuracy_score(y_true=Y_valid, y_pred=Y_pred))
+        print("precision = ", precision_score(y_true=Y_valid, y_pred=Y_pred))
+        print("recall = ", recall_score(y_true=Y_valid, y_pred=Y_pred))
+        print("f1 score = ", f1_score(y_true=Y_valid, y_pred=Y_pred))
 
-    with open("./model/model.pickle", mode="wb") as f:
-        pickle.dump(lr, f)
+        Y_score = lr.predict_proba(X_valid)[:, 1]  # 検証データがクラス1に属する確率
+        print("auc = ", roc_auc_score(y_true=Y_valid, y_score=Y_score))
+
+        with open(f"./model/model_{i}.pickle", mode="wb") as f:
+            pickle.dump(lr, f)
 
 
 def test(X: pd.DataFrame):
