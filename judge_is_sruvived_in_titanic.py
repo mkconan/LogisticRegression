@@ -2,6 +2,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
 from sklearn.metrics import roc_auc_score
 from pprint import pprint
@@ -14,44 +15,91 @@ features = ["PassengerId", "Pclass", "Sex", "Age", "SibSp", "Parch", "Fare", "Em
 object_value_name = "Survived"
 
 
-def load_data(path: str, is_train: bool = True):
-    df = pd.read_csv(path)
+def _pre_process_cmn_data(df: pd.DataFrame) -> pd.DataFrame:
+    """学習、テストデータに共通する前処理
 
-    # filter
-    if is_train:
-        df = df[[*features, object_value_name]]
-    else:  # for eval
-        df = df[[*features]]
+    Args:
+        df (pd.DataFrame): _description_
 
+    Returns:
+        pd.DataFrame: _description_
+    """
     # 欠損データに対する処理
     # df = df.dropna()
-    df["Age"] = df["Age"].fillna(df["Age"].mean())
-    df["Fare"] = df["Fare"].fillna(df["Fare"].mean())
-    df["Embarked"] = df["Embarked"].fillna("S")
+    df["Age"] = df["Age"].fillna(df["Age"].mean()).copy()
+    df["Fare"] = df["Fare"].fillna(df["Fare"].mean()).copy()
+    df["Embarked"] = df["Embarked"].fillna("S").copy()
 
     # mapping
     df["Sex"] = df["Sex"].map({"male": 0, "female": 1})
     df["Embarked"] = df["Embarked"].map({"C": 0, "Q": 1, "S": 2})
-    return df
 
-
-def pre_process_data(df: pd.DataFrame):
     # 料金0は除外
     df = df[df["Fare"] != 0].reset_index(drop=True)
 
+    return df
+
+
+def convert_categories(
+    train_df: pd.DataFrame, test_df: pd.DataFrame, column_name: str
+) -> list[pd.DataFrame, pd.DataFrame]:
+    """カテゴリ変数を変換（学習データとテストデータで同じように変換する）
+
+    Args:
+        train_df (pd.DataFrame): _description_
+        test_df (pd.DataFrame): _description_
+        column_name (str): _description_
+
+    Returns:
+        list[pd.DataFrame, pd.DataFrame]: _description_
+    """
+    categories = train_df[column_name].unique()
+    train_df[column_name] = pd.Categorical(train_df[column_name], categories)
+    test_df[column_name] = pd.Categorical(test_df[column_name], categories)
+    train_df = pd.get_dummies(train_df, columns=[column_name])
+    test_df = pd.get_dummies(test_df, columns=[column_name])
+    return train_df, test_df
+
+
+def pre_process_data(train_df: pd.DataFrame, test_df: pd.DataFrame) -> list[pd.DataFrame, pd.DataFrame]:
+    """データの前処理
+
+    Args:
+        train_df (pd.DataFrame): _description_
+        test_df (pd.DataFrame): _description_
+
+    Returns:
+        list[pd.DataFrame, pd.DataFrame]: _description_
+    """
+
+    train_df = train_df[[*features, object_value_name]].copy()
+    test_df = test_df[[*features]].copy()
+
+    # 標準化
+    scaler = StandardScaler()
+    scaler.fit(train_df[["Age", "Fare"]])
+    train_df[["Age", "Fare"]] = scaler.transform(train_df[["Age", "Fare"]]).copy()
+    test_df[["Age", "Fare"]] = scaler.transform(test_df[["Age", "Fare"]]).copy()
+
     # ticket
-    ticket_values = df["Ticket"].value_counts()
+    ticket_values = train_df["Ticket"].value_counts()
     ticket_values = ticket_values[ticket_values > 1]
     ticket_values = pd.Series(ticket_values.index, name="Ticket")
     categories = set(ticket_values.tolist())
-    df["Ticket"] = pd.Categorical(df["Ticket"], categories=categories)
-    df = pd.get_dummies(df, columns=["Ticket"])
+    train_df["Ticket"] = pd.Categorical(train_df["Ticket"], categories=categories)
+    test_df["Ticket"] = pd.Categorical(test_df["Ticket"], categories=categories)
+    train_df = pd.get_dummies(train_df, columns=["Ticket"])
+    test_df = pd.get_dummies(test_df, columns=["Ticket"])
 
     # SibSp/Parch
-    df = pd.get_dummies(df, columns=["SibSp"])
-    df = pd.get_dummies(df, columns=["Parch"])
+    train_df, test_df = convert_categories(train_df, test_df, "SibSp")
+    train_df, test_df = convert_categories(train_df, test_df, "Parch")
 
-    return df
+    # 学習、テストデータの共通処理
+    train_df = _pre_process_cmn_data(train_df)
+    test_df = _pre_process_cmn_data(test_df)
+
+    return train_df, test_df
 
 
 def pair_plot(df: pd.DataFrame):
@@ -76,17 +124,15 @@ def pair_plot(df: pd.DataFrame):
         plt.close()
 
 
-def train():
-    df = load_data("./train.csv")
-    df = pre_process_data(df)
+def train(train_df: pd.DataFrame):
     # 使えそうな特徴量をさがす
     # pair_plot(df)
 
     # 質的データはダミー変数に変換
     # df = pd.get_dummies(df, drop_first=True)
 
-    X = df.drop(object_value_name, axis=1)
-    Y = df[object_value_name]
+    X = train_df.drop(object_value_name, axis=1)
+    Y = train_df[object_value_name]
 
     X_train, X_eval, Y_train, Y_eval = train_test_split(X, Y, test_size=0.2, random_state=0)
 
@@ -105,14 +151,12 @@ def train():
     Y_score = lr.predict_proba(X_eval)[:, 1]  # 検証データがクラス1に属する確率
     print("auc = ", roc_auc_score(y_true=Y_eval, y_score=Y_score))
 
-    with open("model.pickle", mode="wb") as f:
+    with open("./model/model.pickle", mode="wb") as f:
         pickle.dump(lr, f)
 
 
-def test():
-    X = load_data("./test.csv", is_train=False)
-    print(X["PassengerId"])
-    with open("./model.pickle", mode="rb") as f:
+def test(X: pd.DataFrame):
+    with open("./model/model.pickle", mode="rb") as f:
         model = pickle.load(f)
         Y = model.predict(X)
 
@@ -122,5 +166,8 @@ def test():
 
 
 if __name__ == "__main__":
-    train()
-    # test()
+    train_df = pd.read_csv("./train.csv")
+    test_df = pd.read_csv("./test.csv")
+    post_process_train_df, post_process_test_df = pre_process_data(train_df, test_df)
+    train(post_process_train_df)
+    test(post_process_test_df)
